@@ -1,0 +1,25 @@
+# Top-level dependencies, hand-maintained (append as plan.md introduces new ones).
+# All pinned to the versions installed in .venv. Transitive deps are left to
+# pip to resolve — don't list them here.
+
+# ingest/ — market pulls
+httpx==0.28.1              # Polymarket Gamma API + Kalshi REST calls
+cryptography==49.0.0       # Kalshi RSA-PSS request signing
+
+# match/ — candidate generation + LLM verification
+sentence-transformers==5.6.0   # embedding similarity for candidate pairs
+google-genai==2.11.0       # Gemini structured-output verification
+
+# scan/ + dashboard/ — analysis and UI
+pandas==3.0.3              # dataframes for the scanner / dashboard
+streamlit==1.59.2          # dashboard app
+duckdb==1.5.4              # local database (db/markets.duckdb)
+
+# execute/ — order placement
+py-clob-client==0.34.6     # Polymarket order placement (not raw HTTP)
+
+# alerts/ — SMS + notifications
+twilio==9.10.9             # Twilio SMS alerts and reply webhook
+
+# config
+python-dotenv==1.2.2       # load .env into os.environ
