@@ -1,10 +1,11 @@
-"""Day 3 Block 2: verify every candidate pair, write to verified_pairs.
+"""Day 3 Block 2: verify every candidate pair with Claude, write to verified_pairs.
 
-    python match/run_verify.py [--limit N] [--throttle 1.5]
+    python match/run_verify.py --limit 3     # smoke-test a few pairs first (~2 cents)
+    python match/run_verify.py               # then the full run (~$1 for 145 pairs)
 
-Resumable: pairs already in verified_pairs are skipped, so a run interrupted by
-free-tier quota can be re-run later to finish. rules_hash_* are snapshotted for
-Day 4's staleness check.
+Needs ANTHROPIC_API_KEY in .env. Resumable: pairs already in verified_pairs are
+skipped, so an interrupted run can be re-run later to finish. rules_hash_* are
+snapshotted for Day 4's staleness check.
 """
 import argparse
 import sys
@@ -68,8 +69,14 @@ def run(limit: int | None = None, throttle: float = 1.5) -> None:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--throttle", type=float, default=1.5)
+    ap = argparse.ArgumentParser(
+        description="Verify candidate pairs with Claude -> verified_pairs.",
+        epilog="Tip: run with --limit 3 first to smoke-test (~2 cents) before the "
+               "full ~$1 run. The job is resumable, so the smoke-tested pairs "
+               "aren't re-verified.")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="verify at most N new pairs (highest-similarity first)")
+    ap.add_argument("--throttle", type=float, default=0.5,
+                    help="seconds to sleep between calls (default 0.5)")
     args = ap.parse_args()
     run(limit=args.limit, throttle=args.throttle)
