@@ -40,34 +40,58 @@ def main():
         con.close()
         return
 
-    print(f"{len(queue)} pairs to review.  [y]es / [n]o / [s]kip / [q]uit\n")
-    for i, (aid, bid, conf, mismatch) in enumerate(queue, 1):
+    print(f"{len(queue)} pairs to review.  "
+          "[y]es / [n]o / [s]kip / [b]ack / [q]uit\n")
+    history: list[tuple[int, str, str, bool]] = []  # (index, aid, bid, changed_status)
+    i = 0
+    while i < len(queue):
+        aid, bid, conf, mismatch = queue[i]
         a, b = poly.get(aid), kalshi.get(bid)
         if not a or not b:
-            print(f"[{i}] (a market is no longer in the latest snapshot — skipping)")
+            print(f"[{i+1}] (a market is no longer in the latest snapshot — skipping)")
+            i += 1
             continue
         print("=" * 72)
-        print(f"[{i}/{len(queue)}]  LLM confidence={conf:.2f}")
+        print(f"[{i+1}/{len(queue)}]  LLM confidence={conf:.2f}")
         print(f"  A (polymarket): {a['question']}")
         print(f"     prices={a['prices']}")
         print(f"  B (kalshi):     {b['question']}")
         print(f"     prices={b['prices']}")
         if mismatch:
             print(f"  ⚠ LLM flagged: {mismatch}")
-        ans = input("  same event? [y/n/s/q]: ").strip().lower()
+        ans = input("  same event? [y/n/s/b/q]: ").strip().lower()
+
         if ans == "q":
             break
+        if ans == "b":
+            if not history:
+                print("  (already at the start — nothing to undo)")
+                continue
+            j, paid, pbid, changed = history.pop()
+            if changed:
+                con.execute(
+                    "UPDATE verified_pairs SET status='needs_review' "
+                    "WHERE market_a=? AND market_b=?", [paid, pbid])
+                print(f"  <- undid pair {j+1}, back to needs_review")
+            i = j  # re-present that pair
+            continue
         if ans == "y":
             new = "confirmed"
         elif ans == "n":
             new = "rejected"
+        elif ans == "s":
+            history.append((i, aid, bid, False))  # skipped — no status change
+            i += 1
+            continue
         else:
-            continue  # skip: leave as needs_review
+            continue  # invalid input — re-prompt the same pair
+
         con.execute(
             "UPDATE verified_pairs SET status = ? WHERE market_a = ? AND market_b = ?",
-            [new, aid, bid],
-        )
+            [new, aid, bid])
         print(f"  -> {new}")
+        history.append((i, aid, bid, True))
+        i += 1
 
     con.close()
     print("\nReview session saved.")

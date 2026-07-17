@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "match"))
 from anthropic import AuthenticationError, PermissionDeniedError  # noqa: E402
 from data import connect, load_latest_markets  # noqa: E402
-from pricing import gross_spread, net_edge  # noqa: E402
+from pricing import gross_spread, is_plausible_edge, liquid_enough, net_edge  # noqa: E402
 from verify import (CredentialError, classify, health_check,  # noqa: E402
                     rules_hash, verify_pair)
 
@@ -66,8 +66,19 @@ def scan(con, notify: bool = False, run_audit: bool = True) -> list[dict]:
         pa, pb = _yes_price(a), _yes_price(b)
         if pa is None or pb is None:
             continue
+        # Liquidity floor: a thin market's quoted price is unreliable, so a gap
+        # against it is a phantom (stale last-trade), not a real arb.
+        if not liquid_enough(a["volume"], b["volume"]):
+            continue
         edge = net_edge(pa, pb)
         if edge <= 0:
+            continue
+        # Too-good-to-be-true: a large gap on a verified-same event means the
+        # match or a price is wrong — quarantine for review, don't trade it.
+        if not is_plausible_edge(edge):
+            con.execute("UPDATE verified_pairs SET status='needs_review' "
+                        "WHERE market_a=? AND market_b=?", [aid, bid])
+            print(f"  implausible edge {edge:.2f} -> needs_review: {a['question'][:48]}")
             continue
 
         # Dedupe: don't re-log a pair that already has an open opportunity.
