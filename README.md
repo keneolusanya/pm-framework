@@ -102,17 +102,60 @@ cp .env.example .env                   # then fill in your keys
 Secrets live in `.env` only (never committed). See the secrets table in
 `plan.md` for what each day needs.
 
-## Run
+## Usage
+
+### First run — bootstrap the pipeline (in order)
 
 ```bash
-python ingest/run.py                   # pull both platforms (--loop for every 5m)
-python match/build_candidates.py       # markets -> candidate_pairs
-python match/run_verify.py             # candidate_pairs -> verified_pairs (Claude)
-python match/review.py                 # manual review queue (y/n/s)
-python scan/scanner.py --notify        # flag spreads, fire RSS/SMS
-streamlit run dashboard/app.py         # dashboard
-python scripts/export_dataset.py       # export verified_pairs.csv
+python ingest/run.py                   # 1. pull both platforms -> markets
+python match/build_candidates.py       # 2. markets -> candidate_pairs (structural + embeddings)
+python match/run_verify.py --limit 3   # 3. smoke-test verification (~2 cents)
+python match/run_verify.py             # 4. full verification -> verified_pairs (~$1, resumable)
+python match/review.py                 # 5. clear the needs_review queue (interactive y/n/s)
+python scan/scanner.py                 # 6. flag mispricings -> opportunities
+streamlit run dashboard/app.py         # 7. view spreads + history
+python scripts/export_dataset.py       # (optional) export verified_pairs.csv
 ```
+
+Steps 1–4 populate the database; after that the scanner and dashboard have real
+data to work with. Step 4 is the only step that costs money (Claude calls).
+
+### Ongoing operation
+
+Re-run step 1 to refresh prices, and steps 2 + 4 periodically (weekly/monthly) to
+pick up new markets — verification is **resumable**, so a refresh only pays for
+*new* pairs, not the whole set again. In production these are wired to run on a
+schedule (see `deploy/`).
+
+### What runs on its own vs. what you run
+
+Once deployed (systemd timers in `deploy/`), these run automatically:
+
+| Automated | Cadence | Notes |
+|---|---|---|
+| `ingest/run.py` | every 5 min | price refresh |
+| `scan/scanner.py --notify` | every 5 min | spread scan + staleness check + ~1% daily audit; fires RSS/SMS |
+| `execute/webhook.py` | always-on | receives your `Y` SMS confirmation |
+| `dashboard/app.py` | always-on | serves the public + gated pages |
+
+These are always **manual** (by design):
+
+| Manual | Why |
+|---|---|
+| `match/build_candidates.py` | you decide when to re-scan for new markets |
+| `match/run_verify.py` | the ~$1 full run — kept manual so you control spend |
+| `match/review.py` | inherently interactive (you type y/n/s) |
+| `execute/trade.py` | **money** — requires your `y`; never fires alone |
+| `scripts/export_dataset.py` | one-off publish |
+
+### Cost & cadence
+
+The automated Claude usage is only the scanner's staleness + audit checks —
+single-digit calls/day, roughly **$1–3/month**. The expensive **full verification
+(~$1) is manual** and only runs when you invoke it. Set a low monthly spend cap
+on your Anthropic key as a guardrail; the key needs no expiry for the system to
+keep running (an expired key silently disables the audit safety net — see
+Execution safety).
 
 ## Execution safety
 
