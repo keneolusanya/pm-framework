@@ -18,6 +18,10 @@ duckdb==1.5.4              # local database (db/markets.duckdb)
 # execute/ — order placement
 py-clob-client==0.34.6     # Polymarket order placement (not raw HTTP)
 
+# execute/ — SMS-confirm webhook (order placement uses py-clob-client, above)
+fastapi==0.139.2           # SMS-confirm webhook (Day 5)
+uvicorn==0.51.0            # ASGI server for the webhook
+
 # alerts/ — SMS + notifications
 twilio==9.10.9             # Twilio SMS alerts and reply webhook
 

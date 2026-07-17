@@ -462,8 +462,27 @@ def notify_sms(account_sid, auth_token, from_number, to_number, opportunity):
 - [ ] In Day 6, once the VPS + Caddy setup is live, swap the Twilio webhook
       URL from the ngrok tunnel to the permanent `/sms-reply` route — same
       code, just a stable home for it
-- [ ] **✅ Done when:** you've placed one real, small trade confirmed by
+- [~] **✅ Done when:** you've placed one real, small trade confirmed by
       replying to a text on your phone — not the terminal — and it's logged
+
+> **Code complete, tested in dry-run (2026-07-17):** all execute/ modules
+> built and smoke-tested end-to-end against demo data:
+> - **Concurrency guard verified**: two confirms on the same opportunity →
+>   the second returns "already actioned", no double-fire. status flips
+>   pending→actioned atomically (UPDATE ... WHERE status='pending' RETURNING)
+>   before any order.
+> - **Risk rails verified**: per-trade cap, daily notional cap, and kill
+>   switch (execute/KILL_SWITCH file or RISK_KILL_SWITCH env) all block.
+> - **Nothing auto-executes**: terminal `y` / SMS `Y` are the only triggers;
+>   execute_trade dry-runs unless EXECUTE_LIVE=1 with creds present.
+> - NEEDS YOU to place a *real* trade (the done-when): KALSHI_KEY_ID (for demo
+>   + prod order signing), a funded Polygon wallet key (POLYMARKET_PRIVATE_KEY,
+>   no sandbox), and ngrok to expose the webhook to Twilio. One caveat found:
+>   Polymarket order legs need the market's clob token_id, which Day 1 fetches
+>   but the schema doesn't store — resolve/store it before going live.
+> - DuckDB is single-writer: run the webhook as the one writer process (the
+>   terminal loop is for testing), or move to a client/server DB if both must
+>   be live at once.
 
 ---
 
