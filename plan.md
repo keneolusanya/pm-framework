@@ -317,9 +317,24 @@ def verify_pair(a, b):
 - [ ] Persist your review decisions back into `verified_pairs`
 - [ ] Re-run Day 1's ingestion once more and confirm `verified_pairs` still
       references valid, still-open markets (drop any that closed)
-- [ ] **✅ Done when:** you have a `verified_pairs` table you're personally
+- [~] **✅ Done when:** you have a `verified_pairs` table you're personally
       confident in, with every row either auto-accepted at high confidence or
       manually confirmed by you
+
+> **Code complete, run blocked on quota (2026-07-17):**
+> - `gemini-2.5-flash` from the plan is **retired for new API keys** (404).
+>   Switched to the `gemini-flash-latest` alias (resolves to gemini-3.5-flash)
+>   so it survives future retirements; override with `GEMINI_MODEL`.
+> - The structured-output call shape is validated and works, but this key's
+>   **free tier is capped at ~20 `generate_content_free_tier_requests`** and
+>   stays saturated (persistent 429 with a ~40-55s retry hint that doesn't
+>   actually clear), so the 145-pair batch could not complete — 0 verified.
+> - `match/run_verify.py` is **resumable** (skips already-verified pairs) and
+>   honors the server's retry hint, so this finishes on its own once quota
+>   allows. NEEDS YOU: enable billing on the Gemini key (paid tier lifts the
+>   cap), supply a different key, or let the resumable job run across days.
+> - `match/review.py` (the y/n/s manual queue) is built but needs a human — it
+>   is the one genuinely interactive step and awaits you.
 
 ---
 
