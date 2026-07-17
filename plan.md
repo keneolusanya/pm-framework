@@ -531,8 +531,21 @@ def notify_sms(account_sid, auth_token, from_number, to_number, opportunity):
 ### Block 3 (30 min) — Publish the dataset
 - [ ] Export `verified_pairs` (anonymized of any personal info) as a CSV —
       this is a standalone artifact almost nobody else has published
-- [ ] **✅ Done when:** repo is public, dashboard URL works, README leads with
+- [~] **✅ Done when:** repo is public, dashboard URL works, README leads with
       the matching pipeline
+
+> **Artifacts built, deploy needs you (2026-07-17):**
+> - README leads with the matching pipeline (with ASCII diagram), states the
+>   capital non-fungibility caveat, current single-operator scope, roadmap,
+>   and the manual-UI fallback — all Block 2 points covered.
+> - `deploy/`: systemd `pm-ingest`/`pm-scan` .service+.timer units and a
+>   `Caddyfile` (routes / -> Streamlit, /sms-reply -> webhook, /feed.xml
+>   static). `.env.example` documents every secret.
+> - `scripts/export_dataset.py` works (writes header; 0 data rows until
+>   verification runs).
+> - NEEDS YOU: provision the VPS, copy the units, point DNS, set the Twilio
+>   webhook to the permanent URL, and make the repo public. The deploy configs
+>   assume the app lives at /opt/pm-framework — adjust if you put it elsewhere.
 
 ---
 

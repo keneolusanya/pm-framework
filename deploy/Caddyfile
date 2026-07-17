@@ -1,0 +1,26 @@
+# Caddy reverse proxy for pm-framework. Caddy fetches + renews HTTPS certs
+# automatically — no manual cert management. Replace the site address with your
+# real domain and point its DNS A record at the VPS.
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+your-domain.example {
+    encode gzip
+
+    # Public RSS feed, served as a static file.
+    handle /feed.xml {
+        root * /opt/pm-framework/dashboard
+        file_server
+    }
+
+    # Twilio SMS-confirm webhook -> FastAPI (uvicorn on :8000).
+    # This is the permanent home that replaces the Day 5 ngrok tunnel.
+    handle /sms-reply {
+        reverse_proxy localhost:8000
+    }
+
+    # Everything else -> the Streamlit dashboard (default port 8501).
+    handle {
+        reverse_proxy localhost:8501
+    }
+}

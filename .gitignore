@@ -34,3 +34,6 @@ ngrok.log
 # .ipynb_checkpoints/
 # Generated feed artifact
 dashboard/feed.xml
+
+# Exported dataset artifact
+verified_pairs.csv

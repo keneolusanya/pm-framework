@@ -1,0 +1,10 @@
+[Unit]
+Description=pm-framework mispricing scan (one pass, fires alerts)
+After=network-online.target pm-ingest.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pm-framework
+EnvironmentFile=/opt/pm-framework/.env
+ExecStart=/opt/pm-framework/.venv/bin/python scan/scanner.py --notify
