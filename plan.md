@@ -90,7 +90,7 @@ one place to check "did I gitignore this" rather than relying on memory.
 - [ ] Folder structure: `ingest/`, `match/`, `scan/`, `execute/`, `dashboard/`, `db/`
 
 ### Block 2 (60 min) — Polymarket ingestion
-- [ ] Write `ingest/polymarket.py` hitting the public Gamma API:
+- [x] Write `ingest/polymarket.py` hitting the public Gamma API:
 ```python
 import httpx, json
 
@@ -116,10 +116,17 @@ def fetch_polymarket_markets():
         })
     return rows
 ```
-- [ ] Run it standalone, confirm you get >100 rows with sane-looking prices (0–1 range)
+- [x] Run it standalone, confirm you get >100 rows with sane-looking prices (0–1 range)
+
+> **Finding (2026-07-17):** Gamma silently caps each page at ~100 rows no matter
+> what `limit` you pass. The snippet above returns only 100. The implemented
+> version pages with an `offset` param (stepping by page size until an empty
+> page or a 2000-market cap) to get the full open-market set. `token_ids` is
+> kept in the row dict for Day 5 order placement even though there's no DB
+> column for it yet.
 
 ### Block 3 (60 min) — Kalshi ingestion
-- [ ] Write `ingest/kalshi.py`. Public `/markets` doesn't require auth, but build
+- [x] Write `ingest/kalshi.py`. Public `/markets` doesn't require auth, but build
       the signer now since Day 5 execution needs it anyway:
 ```python
 import time, base64
@@ -141,17 +148,41 @@ def kalshi_auth_headers(method, path, key_id, private_key):
         "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
     }
 ```
-- [ ] Fetch `GET /trade-api/v2/markets?status=open`, normalize into the same
-      schema as Polymarket (note: Kalshi YES/NO prices are in cents, convert
-      to 0–1 probability)
-- [ ] Run it standalone, confirm rows land
+- [x] Fetch `GET /trade-api/v2/markets?status=open`, normalize into the same
+      schema as Polymarket
+- [x] Run it standalone, confirm rows land
+
+> **Finding (2026-07-17):** The live API differs from what this block assumed.
+> Host is `https://api.elections.kalshi.com`. Notable drift:
+> - **Prices are NOT in cents.** They arrive as *strings* in `*_dollars` fields
+>   (`yes_bid_dollars`, `yes_ask_dollars`, `last_price_dollars`), already in 0–1
+>   probability. `float()`-parse them; do **no** `/100` conversion. Watch out:
+>   `"0.0000"` is a non-empty string and therefore truthy — test `> 0`, not
+>   truthiness, or every dead market looks "priced."
+> - **Most open markets are illiquid** (~95% are all-zero, untraded). We keep
+>   only markets with a real price (bid/ask midpoint, else last price) and
+>   **bound the loop by markets *scanned*, not priced rows kept** — otherwise it
+>   paginates through tens of thousands of dead markets forever. Scan cap: 10k.
+> - **No `title` or `category` on the market object.** Question text is built
+>   from `yes_sub_title` (rough — e.g. `"yes New York M,..."`). A clean question
+>   needs the event title from `/trade-api/v2/events`; deferred to Day 2 as a
+>   matching-quality task. `volume` is `volume_fp` (also a string).
+> - The signer is built and wired in (optional — only signs when `KALSHI_KEY_ID`
+>   is set). `KALSHI_KEY_ID` is not yet in `.env`; not needed until Day 5.
 
 ### Block 4 (30 min) — Land it, schedule it
-- [ ] `ingest/run.py` calls both fetchers, writes into the DuckDB `markets` table
-- [ ] Add a simple loop (every 5 min) with exponential backoff on HTTP 429s
-- [ ] **✅ Done when:** `python ingest/run.py` populates the `markets` table for
+- [x] `ingest/run.py` calls both fetchers, writes into the DuckDB `markets` table
+- [x] Add a simple loop (every 5 min) with exponential backoff on HTTP 429s
+- [x] **✅ Done when:** `python ingest/run.py` populates the `markets` table for
       both platforms and you can `SELECT COUNT(*) FROM markets GROUP BY platform`
       and see two non-trivial numbers
+
+> **Done 2026-07-17:** `SELECT COUNT(*) FROM markets GROUP BY platform` →
+> `kalshi=1057, polymarket=2000`, prices in 0–1, JSON + `close_time` stored
+> cleanly. Design choices: bare `run.py` does one cycle and exits (testable);
+> `--loop` runs the 5-min scheduler. Each cycle *appends* a snapshot keyed by
+> `fetched_at` (history retained; scanner reads latest) rather than replacing.
+> Backoff lives in a `fetch_with_backoff` wrapper around each fetcher.
 
 ---
 
