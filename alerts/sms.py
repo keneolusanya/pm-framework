@@ -16,12 +16,13 @@ def format_body(opportunity: dict) -> str:
     )
 
 
-def notify_sms(account_sid, auth_token, from_number, to_number, opportunity):
+def send_text(account_sid, auth_token, from_number, to_number, text):
+    """Send an arbitrary SMS body (opportunities, health alerts, etc.)."""
     from twilio.rest import Client
 
-    client = Client(account_sid, auth_token)
-    client.messages.create(
-        body=format_body(opportunity),
-        from_=from_number,
-        to=to_number,
-    )
+    Client(account_sid, auth_token).messages.create(
+        body=text, from_=from_number, to=to_number)
+
+
+def notify_sms(account_sid, auth_token, from_number, to_number, opportunity):
+    send_text(account_sid, auth_token, from_number, to_number, format_body(opportunity))

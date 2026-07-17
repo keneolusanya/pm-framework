@@ -12,7 +12,7 @@ Auth resolves from ANTHROPIC_API_KEY in .env (or any credential the SDK finds).
 import hashlib
 import os
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AuthenticationError, PermissionDeniedError
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
@@ -21,6 +21,11 @@ load_dotenv()
 MODEL = os.environ.get("VERIFY_MODEL", "claude-sonnet-5")
 
 _client: Anthropic | None = None
+
+
+class CredentialError(Exception):
+    """The Anthropic key is missing, invalid, revoked, or expired. Distinct from
+    transient errors so callers can alert loudly on it rather than silently skip."""
 
 
 class VerifyResult(BaseModel):
@@ -78,3 +83,26 @@ def classify(result: dict) -> str:
             and not result.get("resolution_mismatch")):
         return "auto_accept"
     return "needs_review"
+
+
+def health_check() -> None:
+    """Confirm the Anthropic key is usable — auth + model access — at zero token
+    cost (a metadata GET, nothing generated). Raises CredentialError if the key
+    is missing, invalid, revoked, or expired. Other errors (network, wrong model
+    id) propagate as themselves so callers can treat them as transient/soft."""
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        raise CredentialError("ANTHROPIC_API_KEY is not set in the environment")
+    try:
+        get_client().models.retrieve(MODEL)
+    except (AuthenticationError, PermissionDeniedError) as e:
+        raise CredentialError(f"Anthropic key rejected ({type(e).__name__}): {e}") from e
+
+
+if __name__ == "__main__":
+    # Manual key check: `python match/verify.py`
+    try:
+        health_check()
+        print(f"OK: Anthropic key valid, model '{MODEL}' reachable.")
+    except CredentialError as e:
+        print(f"FAIL: {e}")
+        raise SystemExit(1)

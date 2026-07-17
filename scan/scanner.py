@@ -20,9 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "match"))
+from anthropic import AuthenticationError, PermissionDeniedError  # noqa: E402
 from data import connect, load_latest_markets  # noqa: E402
 from pricing import gross_spread, net_edge  # noqa: E402
-from verify import classify, rules_hash, verify_pair  # noqa: E402
+from verify import (CredentialError, classify, health_check,  # noqa: E402
+                    rules_hash, verify_pair)
 
 AUDIT_FRACTION = 0.01  # ~1% of verified pairs re-verified per scan
 
@@ -35,7 +37,7 @@ def _yes_price(m):
     return m["prices"][0] if m.get("prices") else None
 
 
-def scan(con, notify: bool = False) -> list[dict]:
+def scan(con, notify: bool = False, run_audit: bool = True) -> list[dict]:
     poly = _index(load_latest_markets(con, "polymarket"))
     kalshi = _index(load_latest_markets(con, "kalshi"))
 
@@ -90,7 +92,8 @@ def scan(con, notify: bool = False) -> list[dict]:
         if notify:
             _dispatch_alerts(opp)
 
-    _random_audit(con, verified, poly, kalshi)
+    if run_audit:
+        _random_audit(con, verified, poly, kalshi)
     return found
 
 
@@ -127,6 +130,11 @@ def _random_audit(con, verified, poly, kalshi):
             continue
         try:
             result = verify_pair(a, b)
+        except (AuthenticationError, PermissionDeniedError, CredentialError) as e:
+            # Key died/expired mid-scan — this is the loud case, not a quiet skip.
+            print(f"[KEY ALERT] audit aborted, Anthropic key problem: {e}",
+                  file=sys.stderr)
+            return
         except Exception as e:
             print(f"  (audit skipped, LLM unavailable: {type(e).__name__})")
             return
@@ -137,11 +145,46 @@ def _random_audit(con, verified, poly, kalshi):
             print(f"  audit flagged -> needs_review: {a['question'][:50]}")
 
 
+def _alert_key_problem(err, notify: bool) -> None:
+    """Make a dead/expired key LOUD: stderr warning + best-effort SMS. Without
+    this, an expired key would silently disable the audit safety net."""
+    msg = (f"[KEY ALERT] Anthropic key unavailable — the verification audit is "
+           f"DISABLED. Spread scanning continues, but the staleness/audit safety "
+           f"net is OFF until the key is fixed. Details: {err}")
+    print(msg, file=sys.stderr)
+    if not notify:
+        return
+    try:
+        import os
+        from sms import send_text
+        creds = [os.environ.get(k) for k in
+                 ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
+                  "TWILIO_FROM_NUMBER", "TWILIO_TO_NUMBER")]
+        if all(creds):
+            send_text(*creds, "pm-framework: Anthropic key problem — "
+                              "verification audit disabled. Check the key.")
+    except Exception as e:
+        print(f"  (key-alert SMS failed: {type(e).__name__})", file=sys.stderr)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--notify", action="store_true")
     args = ap.parse_args()
+
+    # Fail loud, not silent: verify the key before relying on the audit.
+    key_ok = True
+    try:
+        health_check()
+    except CredentialError as e:
+        key_ok = False
+        _alert_key_problem(e, notify=args.notify)
+    except Exception as e:  # network/transient — don't block the scan
+        print(f"(key health check inconclusive: {type(e).__name__}; proceeding)")
+
     con = connect()
-    opps = scan(con, notify=args.notify)
+    opps = scan(con, notify=args.notify, run_audit=key_ok)
     con.close()
     print(f"scan complete: {len(opps)} new opportunit{'y' if len(opps)==1 else 'ies'}")
+    if not key_ok:
+        raise SystemExit(1)  # non-zero so systemd flags the unit / OnFailure fires
