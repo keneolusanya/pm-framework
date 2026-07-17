@@ -230,9 +230,32 @@ def top_k_candidates(poly, kalshi, k=3, min_sim=0.55):
 - [ ] Pull 10 random candidate pairs and eyeball them yourself
 - [ ] Tune `min_sim` up/down until the top few candidates per market look
       plausible more often than not (you don't need it perfect — Day 3 catches errors)
-- [ ] **✅ Done when:** `candidate_pairs` has a manageable number of rows
+- [x] **✅ Done when:** `candidate_pairs` has a manageable number of rows
       (dozens to low hundreds, not thousands) and manual spot-checking shows
       mostly sensible pairings
+
+> **Done 2026-07-17:** 145 candidate pairs (121 politics, 14 economics, 10
+> companies/tech). Key findings:
+> - **Neither platform gives a usable category as assumed.** Polymarket's
+>   Gamma market object has `category: null` and `tags: null` — only nested
+>   `events[].title`. Kalshi markets carry no category either; the *event*
+>   does. So Kalshi ingestion was reworked to drive from `/events?...&
+>   with_nested_markets=true`, which yields real categories ("Elections",
+>   "Economics", "Crypto", ...) and titles (Day 1's `/markets`-first scan
+>   returned only sports-combo markets whose events never intersect the
+>   interesting ones). `match/category_map.csv` therefore maps Polymarket
+>   *keywords* ↔ Kalshi *native category names*, not tag ↔ series prefix.
+> - **k=1, not k=3.** Multi-outcome events (e.g. "2028 nominee: <person>")
+>   exist as one binary market per outcome on *both* platforms, so k=3 pairs
+>   each Polymarket market with 3 near-duplicate Kalshi legs. k=1 gives the
+>   correct 1:1 mapping and dedupes; min_sim tuned to 0.80.
+> - **Embedding stage is bucketed by category** (embed each market once,
+>   matrix-multiply within category, top-k) to avoid the 84M-pair cross
+>   product; the 48h close_time window is applied to the small survivor set.
+> - The near-misses that survive (Senate "2026" vs "2028", "Senate" vs "State
+>   Senate", Trump visits "Wyoming" vs "Montana") are exactly the resolution
+>   mismatches Day 3's LLM verification is built to reject — the pipeline is
+>   working as designed.
 
 ---
 

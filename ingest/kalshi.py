@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 BASE = "https://api.elections.kalshi.com"
 MARKETS_PATH = "/trade-api/v2/markets"
+EVENTS_PATH = "/trade-api/v2/events"
 
 
 def kalshi_auth_headers(method, path, key_id, private_key):
@@ -71,7 +72,15 @@ def _yes_prob(market) -> float | None:
     return last if last > 0 else None
 
 
-def fetch_kalshi_markets(scan_cap: int = 10000, timeout: float = 30.0) -> list[dict]:
+def fetch_kalshi_markets(event_cap: int = 6000, timeout: float = 30.0) -> list[dict]:
+    """Ingest open Kalshi markets, driven by events.
+
+    We page `/events?with_nested_markets=true` rather than `/markets` directly:
+    the event carries the real category ("Elections", "Economics", ...) and
+    human title, and each market is one outcome leg under it. Driving from
+    `/markets` returns sports-combo markets first whose events never intersect
+    the interesting ones — so we'd get prices but no usable text or category.
+    """
     # Auth is optional for this read; sign only if a key id is configured.
     key_id = os.environ.get("KALSHI_KEY_ID")
     private_key = load_private_key() if key_id else None
@@ -80,38 +89,43 @@ def fetch_kalshi_markets(scan_cap: int = 10000, timeout: float = 30.0) -> list[d
     scanned = 0
     cursor = None
     with httpx.Client(timeout=timeout) as client:
-        while scanned < scan_cap:
-            params = {"status": "open", "limit": 1000}
+        while scanned < event_cap:
+            params = {"status": "open", "limit": 200, "with_nested_markets": "true"}
             if cursor:
                 params["cursor"] = cursor
 
             headers = {}
             if key_id and private_key:
-                headers = kalshi_auth_headers("GET", MARKETS_PATH, key_id, private_key)
+                headers = kalshi_auth_headers("GET", EVENTS_PATH, key_id, private_key)
 
-            r = client.get(f"{BASE}{MARKETS_PATH}", params=params, headers=headers)
+            r = client.get(f"{BASE}{EVENTS_PATH}", params=params, headers=headers)
             r.raise_for_status()
             body = r.json()
 
-            page = body.get("markets", [])
-            if not page:
+            events = body.get("events", [])
+            if not events:
                 break
-            scanned += len(page)
-            for m in page:
-                prob = _yes_prob(m)
-                if prob is None:
-                    continue  # illiquid / unpriced — skip
-                rows.append({
-                    "platform": "kalshi",
-                    "market_id": m["ticker"],
-                    "question": m.get("yes_sub_title") or m["ticker"],
-                    "rules_text": m.get("rules_primary", ""),
-                    "category": m.get("category"),  # not present today; kept for parity
-                    "close_time": m.get("close_time"),
-                    "outcomes": ["Yes", "No"],
-                    "prices": [round(prob, 4), round(1 - prob, 4)],
-                    "volume": _f(m.get("volume_fp")),
-                })
+            scanned += len(events)
+            for ev in events:
+                title = ev.get("title") or ""
+                category = ev.get("category")
+                for m in ev.get("markets", []):
+                    prob = _yes_prob(m)
+                    if prob is None:
+                        continue  # illiquid / unpriced — skip
+                    leg = m.get("yes_sub_title") or ""
+                    question = f"{title}: {leg}".strip(": ") or m["ticker"]
+                    rows.append({
+                        "platform": "kalshi",
+                        "market_id": m["ticker"],
+                        "question": question,
+                        "rules_text": m.get("rules_primary", ""),
+                        "category": category,  # real event category
+                        "close_time": m.get("close_time"),
+                        "outcomes": ["Yes", "No"],
+                        "prices": [round(prob, 4), round(1 - prob, 4)],
+                        "volume": _f(m.get("volume_fp")),
+                    })
 
             cursor = body.get("cursor")
             if not cursor:
