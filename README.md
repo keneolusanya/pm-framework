@@ -30,7 +30,7 @@ on, **not** the point of the project.
                               |  thousands -> ~145 candidates
                               v
               STAGE 3  LLM verification (match/verify.py)
-              Gemini structured output: same event? same resolution rules?
+              Claude (Sonnet 5) structured output: same event? same rules?
                               |  auto-accept high-confidence, human-review rest
                               v
                     +-------------------+
@@ -107,7 +107,7 @@ Secrets live in `.env` only (never committed). See the secrets table in
 ```bash
 python ingest/run.py                   # pull both platforms (--loop for every 5m)
 python match/build_candidates.py       # markets -> candidate_pairs
-python match/run_verify.py             # candidate_pairs -> verified_pairs (Gemini)
+python match/run_verify.py             # candidate_pairs -> verified_pairs (Claude)
 python match/review.py                 # manual review queue (y/n/s)
 python scan/scanner.py --notify        # flag spreads, fire RSS/SMS
 streamlit run dashboard/app.py         # dashboard
@@ -128,7 +128,7 @@ available as a fallback if SMS, the terminal, and the whole system are down.
 ## Status
 
 The matching pipeline, scanner, alerts, dashboard, and execution layer are built
-and tested. Stage-3 LLM verification is code-complete but its batch run is gated
-by Gemini free-tier quota — `run_verify.py` is resumable and finishes once quota
-allows (or on a paid tier). See `plan.md` for the day-by-day build log and
-findings.
+and tested. Stage-3 LLM verification runs on Claude Sonnet 5 (`match/verify.py`);
+add `ANTHROPIC_API_KEY` to `.env` and run `python match/run_verify.py` to populate
+`verified_pairs` (resumable; a full run is ~$1). See `plan.md` for the day-by-day
+build log and findings.

@@ -1,45 +1,39 @@
-"""Day 3: LLM verification of candidate pairs with Gemini structured output.
+"""Day 3: LLM verification of candidate pairs with Claude (Sonnet 5).
 
-Structured-output mode guarantees valid JSON against VERIFY_SCHEMA, so there's
-no free text to parse. Two markets are auto-accepted only when the model says
-they're the same event, at high confidence, with no resolution mismatch.
+This is the trust-critical stage — deciding whether two markets resolve on the
+same real-world event, on the same criteria, source, and deadline. We use
+`messages.parse()` with a Pydantic schema so the model returns guaranteed-valid,
+already-parsed JSON (no free text to parse, no schema drift).
 
-Model note: the plan's `gemini-2.5-flash` is retired for new API keys (404).
-We default to the `gemini-flash-latest` alias so this keeps working across
-model retirements; override with GEMINI_MODEL. Free-tier quota is tight and
-the flash models are frequently under load, so calls retry on 429/503.
+Model: claude-sonnet-5 by default (override with VERIFY_MODEL). The Anthropic SDK
+auto-retries 429 / 5xx with exponential backoff, so callers don't hand-roll it.
+Auth resolves from ANTHROPIC_API_KEY in .env (or any credential the SDK finds).
 """
 import hashlib
-import json
 import os
-import re
-import time
 
+from anthropic import Anthropic
 from dotenv import load_dotenv
-from google import genai
-from google.genai import errors as genai_errors
+from pydantic import BaseModel
 
 load_dotenv()
 
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+MODEL = os.environ.get("VERIFY_MODEL", "claude-sonnet-5")
 
-VERIFY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "same_event": {"type": "boolean"},
-        "confidence": {"type": "number"},
-        "resolution_mismatch": {"type": "string", "nullable": True},
-    },
-    "required": ["same_event", "confidence", "resolution_mismatch"],
-}
-
-_client = None
+_client: Anthropic | None = None
 
 
-def get_client() -> genai.Client:
+class VerifyResult(BaseModel):
+    same_event: bool
+    confidence: float
+    resolution_mismatch: str | None
+
+
+def get_client() -> Anthropic:
     global _client
     if _client is None:
-        _client = genai.Client()  # reads GEMINI_API_KEY / GOOGLE_API_KEY
+        # max_retries lets the SDK ride out rate limits / transient 5xx for us.
+        _client = Anthropic(max_retries=5)
     return _client
 
 
@@ -48,40 +42,33 @@ def rules_hash(text: str) -> str:
     return hashlib.sha256((text or "").strip().encode()).hexdigest()
 
 
-def _suggested_delay(err, fallback: float) -> float:
-    """Honor the 'Please retry in Xs' hint the free-tier 429 includes."""
-    m = re.search(r"retry in ([\d.]+)s", str(err))
-    return float(m.group(1)) + 1.0 if m else fallback
-
-
-def verify_pair(a: dict, b: dict, max_retries: int = 8) -> dict:
-    """Ask the LLM whether two markets are the same event. Retries transient
-    429/503 (honoring the server's suggested delay); raises on persistent failure."""
+def verify_pair(a: dict, b: dict) -> dict:
+    """Ask Claude whether two markets are the same event. Returns a dict with
+    same_event (bool), confidence (0-1), resolution_mismatch (str | None)."""
     prompt = (
         f"Market A ({a['platform']}): {a['question']}\nRules A: {a['rules_text']}\n\n"
         f"Market B ({b['platform']}): {b['question']}\nRules B: {b['rules_text']}\n\n"
         "Do these describe the same real-world event, resolving on the same "
-        "criteria, source, and deadline? Flag any difference in resolution rules."
+        "criteria, source, and deadline? Watch for differences in year, "
+        "geographic or jurisdictional scope, the settlement source, or the "
+        "resolution deadline. Set resolution_mismatch to a short description of "
+        "any such difference, or null if there is none."
     )
-    delay = 4.0
-    for attempt in range(1, max_retries + 1):
-        try:
-            resp = get_client().models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": VERIFY_SCHEMA,
-                },
-            )
-            return json.loads(resp.text)
-        except (genai_errors.ServerError, genai_errors.ClientError) as e:
-            code = getattr(e, "code", None)
-            if code in (429, 503) and attempt < max_retries:
-                time.sleep(_suggested_delay(e, min(delay, 60)))
-                delay = min(delay * 2, 60)
-                continue
-            raise
+    resp = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=1024,
+        thinking={"type": "disabled"},
+        messages=[{"role": "user", "content": prompt}],
+        output_format=VerifyResult,
+    )
+    result = resp.parsed_output
+    if result is None:  # e.g. a safety refusal — surface it to the batch runner
+        raise ValueError(f"no parsed output (stop_reason={resp.stop_reason})")
+    return {
+        "same_event": result.same_event,
+        "confidence": result.confidence,
+        "resolution_mismatch": result.resolution_mismatch,
+    }
 
 
 def classify(result: dict) -> str:

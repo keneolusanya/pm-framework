@@ -321,20 +321,24 @@ def verify_pair(a, b):
       confident in, with every row either auto-accepted at high confidence or
       manually confirmed by you
 
-> **Code complete, run blocked on quota (2026-07-17):**
-> - `gemini-2.5-flash` from the plan is **retired for new API keys** (404).
->   Switched to the `gemini-flash-latest` alias (resolves to gemini-3.5-flash)
->   so it survives future retirements; override with `GEMINI_MODEL`.
-> - The structured-output call shape is validated and works, but this key's
->   **free tier is capped at ~20 `generate_content_free_tier_requests`** and
->   stays saturated (persistent 429 with a ~40-55s retry hint that doesn't
->   actually clear), so the 145-pair batch could not complete — 0 verified.
-> - `match/run_verify.py` is **resumable** (skips already-verified pairs) and
->   honors the server's retry hint, so this finishes on its own once quota
->   allows. NEEDS YOU: enable billing on the Gemini key (paid tier lifts the
->   cap), supply a different key, or let the resumable job run across days.
+> **Provider switched to Claude, run needs a key (2026-07-17):**
+> - Originally built on Gemini, but `gemini-2.5-flash` is **retired for new
+>   keys** (404) and the free tier is capped at ~20 req and stays saturated
+>   (persistent 429), so the batch couldn't complete. Since cost at this volume
+>   is a rounding error (~$0.78 for a full 145-pair run), we switched the
+>   trust-critical stage to **Claude Sonnet 5** for judgment quality and to get
+>   off the Gemini retirement treadmill.
+> - `match/verify.py` now uses the Anthropic SDK with `messages.parse()` (a
+>   Pydantic schema → guaranteed-valid JSON). Model defaults to `claude-sonnet-5`
+>   (override with `VERIFY_MODEL`); the SDK auto-retries 429/5xx. Public
+>   interface is unchanged, so `run_verify.py` / `scanner.py` are untouched.
+> - NEEDS YOU: add `ANTHROPIC_API_KEY` to `.env`, then run `python
+>   match/run_verify.py` (resumable — skips already-verified pairs). Full run is
+>   ~$1; ongoing staleness + 1% audit is cents/month.
 > - `match/review.py` (the y/n/s manual queue) is built but needs a human — it
 >   is the one genuinely interactive step and awaits you.
+> - Secrets tracker note: `GEMINI_API_KEY` is no longer used; `ANTHROPIC_API_KEY`
+>   replaces it for Day 3.
 
 ---
 

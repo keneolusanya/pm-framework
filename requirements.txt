@@ -8,7 +8,7 @@ cryptography==49.0.0       # Kalshi RSA-PSS request signing
 
 # match/ — candidate generation + LLM verification
 sentence-transformers==5.6.0   # embedding similarity for candidate pairs
-google-genai==2.11.0       # Gemini structured-output verification
+anthropic==0.117.0         # Claude (Sonnet 5) structured-output verification
 
 # scan/ + dashboard/ — analysis and UI
 pandas==3.0.3              # dataframes for the scanner / dashboard
