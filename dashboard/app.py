@@ -56,6 +56,14 @@ def opportunities_history(con) -> pd.DataFrame:
     ).df()
 
 
+def open_opportunities(con) -> pd.DataFrame:
+    return con.execute(
+        "SELECT question, net_edge, spread, "
+        "       price_a AS polymarket_yes, price_b AS kalshi_yes, created_at "
+        "FROM opportunities WHERE status='pending' ORDER BY net_edge DESC"
+    ).df()
+
+
 def page_opportunities(con):
     st.title("Cross-platform spread opportunities")
     st.caption("Verified-equivalent contracts on Polymarket vs Kalshi. "
@@ -66,7 +74,23 @@ def page_opportunities(con):
     if df.empty:
         st.info("No verified pairs yet. Run the matching pipeline first.")
         return
-    st.metric("Verified equivalent pairs", len(df))
+    opps = open_opportunities(con)
+    c1, c2 = st.columns(2)
+    c1.metric("Verified equivalent pairs", len(df))
+    c2.metric("Open opportunities", len(opps))
+
+    st.subheader("Open opportunities (flagged, not yet actioned)")
+    if opps.empty:
+        st.caption("None currently clear fees + margin — the equivalent pairs "
+                   "are efficiently priced right now.")
+    else:
+        st.dataframe(
+            opps.drop(columns=["created_at"]).style.format(
+                {"net_edge": "{:.3f}", "spread": "{:.3f}",
+                 "polymarket_yes": "{:.2f}", "kalshi_yes": "{:.2f}"}),
+            use_container_width=True, hide_index=True)
+
+    st.subheader("All verified pairs — live spread")
     st.dataframe(
         df.style.format({"polymarket_yes": "{:.2f}", "kalshi_yes": "{:.2f}",
                          "spread": "{:.3f}"}),

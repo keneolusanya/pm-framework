@@ -37,9 +37,34 @@ def _yes_price(m):
     return m["prices"][0] if m.get("prices") else None
 
 
+def _expire_stale(con, poly, kalshi) -> None:
+    """Retire pending opportunities that no longer hold at current prices — the
+    gap converged, a market went illiquid/away, or the edge is now implausible.
+    Keeps `pending` an accurate list of live opportunities for --list / alerts."""
+    pending = con.execute(
+        "SELECT id, market_a, market_b FROM opportunities WHERE status='pending'"
+    ).fetchall()
+    expired = 0
+    for oid, aid, bid in pending:
+        a, b = poly.get(aid), kalshi.get(bid)
+        stale = not a or not b or not a["prices"] or not b["prices"]
+        if not stale:
+            pa, pb = a["prices"][0], b["prices"][0]
+            edge = net_edge(pa, pb)
+            stale = (not liquid_enough(a["volume"], b["volume"])
+                     or edge <= 0 or not is_plausible_edge(edge))
+        if stale:
+            con.execute("UPDATE opportunities SET status='expired' WHERE id=?", [oid])
+            expired += 1
+    if expired:
+        print(f"  expired {expired} stale opportunit{'y' if expired == 1 else 'ies'}")
+
+
 def scan(con, notify: bool = False, run_audit: bool = True) -> list[dict]:
     poly = _index(load_latest_markets(con, "polymarket"))
     kalshi = _index(load_latest_markets(con, "kalshi"))
+
+    _expire_stale(con, poly, kalshi)
 
     verified = con.execute(
         """
@@ -178,10 +203,30 @@ def _alert_key_problem(err, notify: bool) -> None:
         print(f"  (key-alert SMS failed: {type(e).__name__})", file=sys.stderr)
 
 
+def list_pending(con) -> None:
+    """Print all still-open (pending) opportunities, best edge first."""
+    rows = con.execute(
+        "SELECT id, net_edge, spread, price_a, price_b, question "
+        "FROM opportunities WHERE status='pending' ORDER BY net_edge DESC"
+    ).fetchall()
+    print(f"{len(rows)} pending opportunit{'y' if len(rows)==1 else 'ies'}:")
+    for _id, edge, spread, pa, pb, q in rows:
+        print(f"  #{_id}  edge={edge:.3f} spread={spread:.3f}  "
+              f"poly={pa:.2f} kalshi={pb:.2f}  {(q or '')[:48]}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--notify", action="store_true")
+    ap.add_argument("--list", dest="list_only", action="store_true",
+                    help="print pending opportunities and exit (no scan)")
     args = ap.parse_args()
+
+    if args.list_only:
+        con = connect(read_only=True)
+        list_pending(con)
+        con.close()
+        raise SystemExit(0)
 
     # Fail loud, not silent: verify the key before relying on the audit.
     key_ok = True
