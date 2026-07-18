@@ -37,7 +37,7 @@ def run(limit: int | None = None, throttle: float = 1.5) -> None:
         todo = todo[:limit]
     print(f"{len(todo)} candidate pairs to verify (already-verified are skipped)")
 
-    accepted = review = failed = 0
+    accepted = review = rejected = failed = 0
     for i, (aid, bid) in enumerate(todo, 1):
         a, b = poly.get(aid), kalshi.get(bid)
         if not a or not b:
@@ -52,6 +52,7 @@ def run(limit: int | None = None, throttle: float = 1.5) -> None:
         status = classify(result)
         accepted += status == "auto_accept"
         review += status == "needs_review"
+        rejected += status == "auto_reject"
         con.execute(
             "INSERT OR REPLACE INTO verified_pairs VALUES (?,?,?,?,?,?,?,?,?)",
             [aid, bid, result["same_event"], result["confidence"],
@@ -60,12 +61,14 @@ def run(limit: int | None = None, throttle: float = 1.5) -> None:
              datetime.now(timezone.utc)],
         )
         if i % 10 == 0 or i == len(todo):
-            print(f"  [{i}/{len(todo)}] accepted={accepted} needs_review={review} failed={failed}")
+            print(f"  [{i}/{len(todo)}] accepted={accepted} rejected={rejected} "
+                  f"needs_review={review} failed={failed}")
         import time
         time.sleep(throttle)
 
     con.close()
-    print(f"done: auto_accept={accepted}, needs_review={review}, failed={failed}")
+    print(f"done: auto_accept={accepted}, auto_reject={rejected}, "
+          f"needs_review={review}, failed={failed}")
 
 
 if __name__ == "__main__":

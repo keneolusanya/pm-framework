@@ -20,6 +20,14 @@ load_dotenv()
 
 MODEL = os.environ.get("VERIFY_MODEL", "claude-sonnet-5")
 
+# Confidence gates. auto_accept and auto_reject each require the model to be at
+# least this sure of its same_event call; anything less goes to human review.
+# The reject gate is deliberately strict — a wrong reject silently drops a real
+# match (no downstream catch), so raise VERIFY_REJECT_CONF if you want to be
+# even more cautious.
+ACCEPT_CONFIDENCE = float(os.environ.get("VERIFY_ACCEPT_CONF", "0.9"))
+REJECT_CONFIDENCE = float(os.environ.get("VERIFY_REJECT_CONF", "0.9"))
+
 _client: Anthropic | None = None
 
 
@@ -54,10 +62,15 @@ def verify_pair(a: dict, b: dict) -> dict:
         f"Market A ({a['platform']}): {a['question']}\nRules A: {a['rules_text']}\n\n"
         f"Market B ({b['platform']}): {b['question']}\nRules B: {b['rules_text']}\n\n"
         "Do these describe the same real-world event, resolving on the same "
-        "criteria, source, and deadline? Watch for differences in year, "
-        "geographic or jurisdictional scope, the settlement source, or the "
-        "resolution deadline. Set resolution_mismatch to a short description of "
-        "any such difference, or null if there is none."
+        "criteria, source, and deadline?\n"
+        "Treat as DIFFERENT events (same_event=false) any pair that differs in a "
+        "numeric strike, threshold, count, level, or bucket of the same underlying "
+        "series — e.g. '11 rate cuts' vs '1 rate cut', or 'BTC above $70k' vs "
+        "'above $80k'. Also flag differences in year, geographic/jurisdictional "
+        "scope, settlement source, or resolution deadline.\n"
+        "Set resolution_mismatch to a short description of any such difference, or "
+        "null if there is none. Set confidence to how certain you are of the "
+        "same_event judgment itself: 1.0 = certain (either way), 0.5 = a coin flip."
     )
     resp = get_client().messages.parse(
         model=MODEL,
@@ -77,11 +90,23 @@ def verify_pair(a: dict, b: dict) -> dict:
 
 
 def classify(result: dict) -> str:
-    """Map an LLM result to a verified_pairs status."""
-    if (result.get("same_event")
-            and result.get("confidence", 0) > 0.9
-            and not result.get("resolution_mismatch")):
+    """Map an LLM result to a verified_pairs status.
+
+    auto_accept  — confidently the SAME event, no rule mismatch → scanned/traded
+    auto_reject  — confidently a DIFFERENT event → excluded, skips human review
+    needs_review — the model isn't confident either way → you decide
+
+    auto_reject only fires when the model is confident the events differ, so the
+    "11 rate cuts vs 1" pairs get dropped, while genuinely ambiguous ones still
+    reach you.
+    """
+    same = result.get("same_event")
+    conf = result.get("confidence", 0) or 0
+    mismatch = result.get("resolution_mismatch")
+    if same and conf >= ACCEPT_CONFIDENCE and not mismatch:
         return "auto_accept"
+    if (not same) and conf >= REJECT_CONFIDENCE:
+        return "auto_reject"
     return "needs_review"
 
 
