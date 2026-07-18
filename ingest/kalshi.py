@@ -26,6 +26,10 @@ BASE = "https://api.elections.kalshi.com"
 MARKETS_PATH = "/trade-api/v2/markets"
 EVENTS_PATH = "/trade-api/v2/events"
 
+# Upper bound on events scanned per run (the loop stops earlier when the cursor
+# runs out). Each event expands into several markets. Coverage/cost dial, env-tunable.
+DEFAULT_EVENT_CAP = int(os.environ.get("INGEST_KALSHI_EVENT_CAP", "10000"))
+
 
 def kalshi_auth_headers(method, path, key_id, private_key):
     ts = str(int(time.time() * 1000))
@@ -72,7 +76,8 @@ def _yes_prob(market) -> float | None:
     return last if last > 0 else None
 
 
-def fetch_kalshi_markets(event_cap: int = 6000, timeout: float = 30.0) -> list[dict]:
+def fetch_kalshi_markets(event_cap: int = DEFAULT_EVENT_CAP,
+                         timeout: float = 30.0) -> list[dict]:
     """Ingest open Kalshi markets, driven by events.
 
     We page `/events?with_nested_markets=true` rather than `/markets` directly:
