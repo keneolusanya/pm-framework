@@ -1,14 +1,8 @@
 # pm-framework
 
-**Prediction-market research infrastructure.** The core is a 3-stage pipeline
-that decides when two contracts on *different* platforms (Polymarket and Kalshi)
-resolve on the *same real-world event*. That cross-platform matching problem —
-not the trading — is the contribution here; nobody else has built it for this
-asset class.
-
-A mispricing/arbitrage scanner is the first application built on top of the
-matched dataset. It's a proof of concept that the matches are good enough to act
-on, **not** the point of the project.
+**Prediction-market research infrastructure.** The core is a 3-stage pipeline that decides when 
+two contracts on Polymarket and Kalshi platforms resolve on the *same real-world event*. 
+A mispricing/arbitrage scanner is the  first application built on top of the matched dataset.
 
 ## The matching pipeline
 
@@ -43,43 +37,23 @@ on, **not** the point of the project.
 ```
 
 Each stage is progressively more expensive and more accurate, so the cheap
-filters shrink the set before the costly LLM ever runs. The stages catch what
-the previous one can't: embeddings surface "Oregon Senate 2026" ~ "Oregon
+filters shrink the set before the LLM ever runs. For example, 
+embeddings surface "Oregon Senate 2026" ~ "Oregon
 Senate 2028"; the LLM rejects it for the year mismatch.
 
-## Important caveat: capital is not fungible across platforms
-
-This is **not** a frictionless arbitrage. Polymarket settles in USDC on Polygon;
-Kalshi settles in USD via a US brokerage. You can't instantly move capital
-between them, and both legs of a "locked" spread tie up separate pools of money.
-The scanner finds genuine price divergences on equivalent contracts; realizing
-them is subject to that non-fungibility, withdrawal times, and fees. Treat the
-spreads as research signal first, trade signal second.
-
-## What's usable by others today
-
-This runs as a **single-operator system**: your credentials, your risk caps, one
-local DuckDB file. It is not multi-tenant.
-
-- **Public dashboard** — verified pairs and live spreads (read-only).
-- **RSS feed** (`/feed.xml`) — subscribe from any reader; route into Discord,
-  Slack, email. No account on either end.
-- **The verified-pairs dataset** (`scripts/export_dataset.py`) — a CSV of
-  cross-platform equivalent contracts, a standalone artifact.
-- **Not trading** — nobody else can execute through this. It signs with one
-  operator's keys and enforces one operator's risk limits.
-
-## Roadmap (a real multi-user version)
+## Potential Future Roadmap (a real multi-user version)
 
 1. **Self-serve category filtering** on the RSS/alert side (per-category feed
-   URLs) — the cheapest step toward "other people get alerts tailored to them,"
-   no auth required.
+  URLs), other people can get alerts without auth. 
 2. Much further out: **per-user credential storage and execution** — the real
-   work to let others trade through it, deliberately out of scope for now.
+  work to let others trade through it.
+3. A real UI, as opposed to a simple Streamlit version.
+4. Heavy amount of autonomous trading. Definitely the riskiest, but could be
+achieved with months of verified results along with other improvements
 
 ## Layout
 
-| Dir | What |
+| Dir | Description |
 |---|---|
 | `ingest/` | Polymarket (Gamma) + Kalshi (event-driven, RSA-PSS signed) pulls |
 | `match/` | category map, structural filter, embeddings, LLM verification, review CLI |
@@ -98,9 +72,7 @@ pip install -r requirements.txt
 python db/init.py                      # create db/markets.duckdb
 cp .env.example .env                   # then fill in your keys
 ```
-
-Secrets live in `.env` only (never committed). See the secrets table in
-`plan.md` for what each day needs.
+*Fill in Keys
 
 ## Usage
 
@@ -118,12 +90,12 @@ python scripts/export_dataset.py       # (optional) export verified_pairs.csv
 ```
 
 Steps 1–4 populate the database; after that the scanner and dashboard have real
-data to work with. Step 4 is the only step that costs money (Claude calls).
+data. Step 4 is the only step that costs money through the Claude call.
 
 ### Ongoing operation
 
 Re-run step 1 to refresh prices, and steps 2 + 4 periodically (weekly/monthly) to
-pick up new markets — verification is **resumable**, so a refresh only pays for
+pick up new markets. The human verification aspect is **resumable** in the sense that a refresh only pays for
 *new* pairs, not the whole set again. In production these are wired to run on a
 schedule (see `deploy/`).
 
@@ -148,15 +120,6 @@ These are always **manual** (by design):
 | `execute/trade.py` | **money** — requires your `y`; never fires alone |
 | `scripts/export_dataset.py` | one-off publish |
 
-### Cost & cadence
-
-The automated Claude usage is only the scanner's staleness + audit checks —
-single-digit calls/day, roughly **$1–3/month**. The expensive **full verification
-(~$1) is manual** and only runs when you invoke it. Set a low monthly spend cap
-on your Anthropic key as a guardrail; the key needs no expiry for the system to
-keep running (an expired key silently disables the audit safety net — see
-Execution safety).
-
 ## Execution safety
 
 Nothing trades automatically. Every trade requires a human to confirm — `y` at
@@ -166,12 +129,6 @@ Risk rails (per-trade cap, daily notional cap, kill switch) are checked on every
 order. `execute_trade` dry-runs unless `EXECUTE_LIVE=1`.
 
 Manual execution directly on Kalshi's or Polymarket's own UI always remains
-available as a fallback if SMS, the terminal, and the whole system are down.
+available as a fallback if SMS, the terminal, and the whole system are down
+(or you just want to :) )
 
-## Status
-
-The matching pipeline, scanner, alerts, dashboard, and execution layer are built
-and tested. Stage-3 LLM verification runs on Claude Sonnet 5 (`match/verify.py`);
-add `ANTHROPIC_API_KEY` to `.env` and run `python match/run_verify.py` to populate
-`verified_pairs` (resumable; a full run is ~$1). See `plan.md` for the day-by-day
-build log and findings.
