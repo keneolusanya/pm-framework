@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS markets (
     fetched_at  TIMESTAMP NOT NULL    -- when this snapshot was pulled
 );
 
--- Day 2: candidate cross-platform matches surviving structural + embedding filters.
+-- candidate cross-platform matches surviving structural + embedding filters.
 -- market_a is always the Polymarket id, market_b the Kalshi id.
 CREATE TABLE IF NOT EXISTS candidate_pairs (
     market_a    VARCHAR   NOT NULL,   -- polymarket market_id
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS candidate_pairs (
     PRIMARY KEY (market_a, market_b)
 );
 
--- Day 3: LLM-verified pairs. rules_hash_* snapshot the resolution text at
+-- LLM-verified pairs. rules_hash_* snapshot the resolution text at
 -- verification time so Day 4's staleness check can detect edits.
 CREATE TABLE IF NOT EXISTS verified_pairs (
     market_a            VARCHAR   NOT NULL,   -- polymarket market_id
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS verified_pairs (
     PRIMARY KEY (market_a, market_b)
 );
 
--- Day 4: flagged mispricing opportunities. `status` is the concurrency guard
+-- flagged mispricing opportunities. `status` is the concurrency guard
 -- shared by the terminal loop and the SMS webhook (Day 5).
 CREATE SEQUENCE IF NOT EXISTS seq_opportunity_id START 1;
 CREATE TABLE IF NOT EXISTS opportunities (
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS opportunities (
     created_at  TIMESTAMP NOT NULL
 );
 
--- Day 5: executed trades. Two legs per opportunity (one row each).
+-- executed trades. Two legs per opportunity (one row each).
 CREATE SEQUENCE IF NOT EXISTS seq_trade_id START 1;
 CREATE TABLE IF NOT EXISTS trades (
     id             BIGINT    DEFAULT nextval('seq_trade_id') PRIMARY KEY,
