@@ -27,18 +27,18 @@ TOP_N = 5
 
 def build_summary(con) -> str | None:
     rows = con.execute(
-        "SELECT question, net_edge FROM opportunities "
+        "SELECT id, question, net_edge FROM opportunities "
         "WHERE status='pending' ORDER BY net_edge DESC"
     ).fetchall()
     if not rows:
         return None
     n = len(rows)
     lines = [f"pm-framework: {n} open arb opportunit{'y' if n == 1 else 'ies'}"]
-    for q, edge in rows[:TOP_N]:
-        lines.append(f"- {(q or '')[:44]} ({edge * 100:.1f}%)")
+    for oid, q, edge in rows[:TOP_N]:
+        lines.append(f"#{oid} {(q or '')[:40]} ({edge * 100:.1f}%)")
     if n > TOP_N:
         lines.append(f"...+{n - TOP_N} more")
-    lines.append(f"Details: {DASHBOARD_URL}")
+    lines.append(f"Reply Y <id> to execute. Details: {DASHBOARD_URL}")
     return "\n".join(lines)
 
 
@@ -55,13 +55,11 @@ def main(send: bool) -> None:
     if not send:
         print("\n(dry-run; re-run with --send to text it)")
         return
-    creds = [os.environ.get(k) for k in
-             ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
-              "TWILIO_FROM_NUMBER", "TWILIO_TO_NUMBER")]
-    if not all(creds):
+    from sms import send_text, twilio_creds
+    creds = twilio_creds()
+    if not creds:
         print("\n(not sent: Twilio env not fully set)")
         return
-    from sms import send_text
     send_text(*creds, text)
     print("\n(sent via SMS)")
 

@@ -4,6 +4,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+User=pm
+Group=pm
 Type=oneshot
 WorkingDirectory=/opt/pm-framework
 EnvironmentFile=/opt/pm-framework/.env

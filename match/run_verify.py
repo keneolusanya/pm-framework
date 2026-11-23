@@ -1,14 +1,15 @@
-"""Day 3 Block 2: verify every candidate pair with Claude, write to verified_pairs.
+"""Verify every new candidate pair with Claude, write to verified_pairs.
 
     python match/run_verify.py --limit 3     # smoke-test a few pairs first (~2 cents)
-    python match/run_verify.py               # then the full run (~$1 for 145 pairs)
+    python match/run_verify.py               # then the full run (~0.7 cents per new pair)
 
 Needs ANTHROPIC_API_KEY in .env. Resumable: pairs already in verified_pairs are
 skipped, so an interrupted run can be re-run later to finish. rules_hash_* are
-snapshotted for Day 4's staleness check.
+snapshotted for the scanner's staleness check.
 """
 import argparse
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,8 +22,18 @@ def _index(markets):
     return {m["market_id"]: m for m in markets}
 
 
-def run(limit: int | None = None, throttle: float = 1.5) -> None:
+def _save(row) -> None:
     con = connect()
+    try:
+        con.execute("INSERT OR REPLACE INTO verified_pairs VALUES (?,?,?,?,?,?,?,?,?)", row)
+    finally:
+        con.close()
+
+
+def run(limit: int | None = None, throttle: float = 0.5) -> None:
+    # Read everything up front and release the lock: the LLM loop takes minutes
+    # and ingestion/scanning must keep running meanwhile.
+    con = connect(read_only=True)
     poly = _index(load_latest_markets(con, "polymarket"))
     kalshi = _index(load_latest_markets(con, "kalshi"))
 
@@ -33,6 +44,7 @@ def run(limit: int | None = None, throttle: float = 1.5) -> None:
         ORDER BY similarity DESC
         """
     ).fetchall()
+    con.close()
     if limit:
         todo = todo[:limit]
     print(f"{len(todo)} candidate pairs to verify (already-verified are skipped)")
@@ -53,20 +65,15 @@ def run(limit: int | None = None, throttle: float = 1.5) -> None:
         accepted += status == "auto_accept"
         review += status == "needs_review"
         rejected += status == "auto_reject"
-        con.execute(
-            "INSERT OR REPLACE INTO verified_pairs VALUES (?,?,?,?,?,?,?,?,?)",
-            [aid, bid, result["same_event"], result["confidence"],
-             result.get("resolution_mismatch"), status,
-             rules_hash(a["rules_text"]), rules_hash(b["rules_text"]),
-             datetime.now(timezone.utc)],
-        )
+        _save([aid, bid, result["same_event"], result["confidence"],
+               result.get("resolution_mismatch"), status,
+               rules_hash(a["rules_text"]), rules_hash(b["rules_text"]),
+               datetime.now(timezone.utc).replace(tzinfo=None)])
         if i % 10 == 0 or i == len(todo):
             print(f"  [{i}/{len(todo)}] accepted={accepted} rejected={rejected} "
                   f"needs_review={review} failed={failed}")
-        import time
         time.sleep(throttle)
 
-    con.close()
     print(f"done: auto_accept={accepted}, auto_reject={rejected}, "
           f"needs_review={review}, failed={failed}")
 
@@ -75,7 +82,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(
         description="Verify candidate pairs with Claude -> verified_pairs.",
         epilog="Tip: run with --limit 3 first to smoke-test (~2 cents) before the "
-               "full ~$1 run. The job is resumable, so the smoke-tested pairs "
+               "full run. The job is resumable, so the smoke-tested pairs "
                "aren't re-verified.")
     ap.add_argument("--limit", type=int, default=None,
                     help="verify at most N new pairs (highest-similarity first)")

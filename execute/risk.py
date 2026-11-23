@@ -1,4 +1,4 @@
-"""Day 5 Block 1: risk rails. Checked before every order, no exceptions.
+"""Risk rails. Checked before every trade, no exceptions.
 
 Three guards:
   * per-trade size cap (start tiny: $10-25),
@@ -31,8 +31,9 @@ def kill_switch_engaged() -> bool:
 def _today_notional(con) -> float:
     row = con.execute(
         "SELECT COALESCE(SUM(price * size), 0) FROM trades "
-        "WHERE created_at >= ?",
-        [datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)],
+        "WHERE created_at >= ? AND COALESCE(status, 'placed') <> 'failed'",
+        [datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0,
+                                            tzinfo=None)],
     ).fetchone()
     return float(row[0] or 0)
 

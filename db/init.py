@@ -1,28 +1,15 @@
-"""Create the DuckDB database file from schema.sql.
+"""Create (or upgrade) the DuckDB database from schema.sql.
 
-Usage: python db/init.py [db_path]
-Defaults to db/markets.duckdb next to this script.
+Usage: python db/init.py
+Uses db/markets.duckdb unless PM_DB_PATH is set. Safe to re-run: the schema
+and migrations are idempotent.
 """
 import sys
 from pathlib import Path
 
-import duckdb
-
-HERE = Path(__file__).resolve().parent
-SCHEMA_PATH = HERE / "schema.sql"
-DEFAULT_DB_PATH = HERE / "markets.duckdb"
-
-
-def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
-    schema = SCHEMA_PATH.read_text()
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute(schema)
-    finally:
-        con.close()
-    print(f"Initialized DuckDB at {db_path}")
-
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "match"))
+from data import DB_PATH, connect  # noqa: E402
 
 if __name__ == "__main__":
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DB_PATH
-    init_db(target)
+    connect().close()
+    print(f"Initialized DuckDB at {DB_PATH}")

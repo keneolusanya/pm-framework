@@ -1,6 +1,6 @@
-"""Day 5 Block 2: Kalshi order placement (authenticated).
+"""Kalshi order placement (authenticated).
 
-Reuses the Day 1 RSA-PSS signer for POST /trade-api/v2/portfolio/orders.
+Reuses the ingestion RSA-PSS signer for POST /trade-api/v2/portfolio/orders.
 Defaults to Kalshi's demo environment — always place and cancel a test order in
 demo before pointing at production. Requires KALSHI_KEY_ID + the private key at
 KALSHI_PRIVATE_KEY_PATH; raises if they're absent rather than silently no-op.

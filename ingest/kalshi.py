@@ -1,7 +1,7 @@
 """Kalshi ingestion.
 
-The public `/markets` endpoint needs no auth, but we build the RSA-PSS request
-signer now because Day 5 execution requires it.
+Public reads need no auth; the RSA-PSS request signer lives here because
+order placement (execute/kalshi_order.py) reuses it.
 
 Data-shape notes (the API differs from older docs):
   * Price/volume fields come as strings in the `*_dollars` / `*_fp` families,
@@ -11,16 +11,21 @@ Data-shape notes (the API differs from older docs):
     with a real price signal and bound how many we scan so pagination always
     terminates.
   * Markets carry `yes_sub_title` / `event_ticker`, not a full `title` or
-    `category`; a proper question needs the event title (a Day 2 enrichment).
+    `category`, so we page events and build the question from the event title.
 """
 import base64
 import os
+import sys
 import time
+from pathlib import Path
 
 import httpx
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scan"))
+from pricing import KALSHI_FEE_RATE  # noqa: E402
 
 BASE = "https://api.elections.kalshi.com"
 MARKETS_PATH = "/trade-api/v2/markets"
@@ -120,6 +125,8 @@ def fetch_kalshi_markets(event_cap: int = DEFAULT_EVENT_CAP,
                         continue  # illiquid / unpriced — skip
                     leg = m.get("yes_sub_title") or ""
                     question = f"{title}: {leg}".strip(": ") or m["ticker"]
+                    bid = _f(m.get("yes_bid_dollars"))
+                    ask = _f(m.get("yes_ask_dollars"))
                     rows.append({
                         "platform": "kalshi",
                         "market_id": m["ticker"],
@@ -129,7 +136,10 @@ def fetch_kalshi_markets(event_cap: int = DEFAULT_EVENT_CAP,
                         "close_time": m.get("close_time"),
                         "outcomes": ["Yes", "No"],
                         "prices": [round(prob, 4), round(1 - prob, 4)],
+                        "yes_bid": bid if bid > 0 else None,
+                        "yes_ask": ask if ask > 0 else None,
                         "volume": _f(m.get("volume_fp")),
+                        "fee_rate": KALSHI_FEE_RATE,
                     })
 
             cursor = body.get("cursor")

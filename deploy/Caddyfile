@@ -1,6 +1,7 @@
 # Caddy reverse proxy for pm-framework. Caddy fetches + renews HTTPS certs
-# automatically — no manual cert management. Replace the site address with your
-# real domain and point its DNS A record at the VPS.
+# automatically. Replace the site address below with your real domain, point
+# its DNS A record at the server, and set WEBHOOK_PUBLIC_URL in .env to
+# https://<your domain>/sms-reply (Twilio signs the public URL).
 #
 #   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
 
@@ -13,13 +14,12 @@ your-domain.example {
         file_server
     }
 
-    # Twilio SMS-confirm webhook -> FastAPI (uvicorn on :8000).
-    # This is the permanent home that replaces the Day 5 ngrok tunnel.
+    # Twilio SMS-confirm webhook -> FastAPI (deploy/pm-webhook.service).
     handle /sms-reply {
         reverse_proxy localhost:8000
     }
 
-    # Everything else -> the Streamlit dashboard (default port 8501).
+    # Everything else -> the Streamlit dashboard (deploy/pm-dashboard.service).
     handle {
         reverse_proxy localhost:8501
     }

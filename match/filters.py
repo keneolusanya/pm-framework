@@ -1,18 +1,25 @@
-"""Structural pre-filter: cheaply cut the cross product before embeddings.
+"""Stage 1 — structural filter: cheaply cut the cross product before embeddings.
 
 A Polymarket x Kalshi pair survives only if:
   (a) both markets map to the same canonical category, and
-  (b) their close_times are within a window of each other (default 48h).
+  (b) their close_times are within a window of each other (default 48h), when
+      both sides have one.
 
 Two markets resolving weeks apart, or in unrelated categories, cannot be the
-same event — so there's no point paying to embed and LLM-verify them.
+same event — so there's no point embedding-ranking or LLM-verifying them. The
+filter is applied as a boolean mask over each category's similarity matrix
+(see embed.py), so the full cross product is never materialized.
+
+    python match/filters.py      # print the funnel for the latest snapshot
 """
-from datetime import timedelta
+from datetime import timezone
+
+import numpy as np
 
 from categorize import categorize, load_category_map
 
 
-def _tag_categories(markets: list[dict], cmap) -> list[dict]:
+def tag_categories(markets: list[dict], cmap) -> list[dict]:
     """Attach a canonical category to each market; drop the unmapped ones."""
     tagged = []
     for m in markets:
@@ -22,27 +29,38 @@ def _tag_categories(markets: list[dict], cmap) -> list[dict]:
     return tagged
 
 
-def structural_pairs(poly: list[dict], kalshi: list[dict],
-                     window_hours: int = 48) -> list[tuple[dict, dict]]:
-    cmap = load_category_map()
-    poly_t = _tag_categories(poly, cmap)
-    kalshi_t = _tag_categories(kalshi, cmap)
+def close_seconds(markets: list[dict]) -> np.ndarray:
+    """close_time (naive UTC) as float epoch seconds, NaN where unknown."""
+    return np.array([m["close_time"].replace(tzinfo=timezone.utc).timestamp()
+                     if m.get("close_time") else np.nan
+                     for m in markets], dtype=np.float64)
 
-    # Bucket Kalshi by category so we don't scan the whole list per Polymarket market.
-    by_cat: dict[str, list[dict]] = {}
+
+def window_mask(close_a: np.ndarray, close_b: np.ndarray, window_hours: float) -> np.ndarray:
+    """(len(a), len(b)) bool matrix: True where the pair passes the time window.
+    A pair with an unknown close_time on either side passes (can't rule it out)."""
+    diff = np.abs(close_a[:, None] - close_b[None, :])
+    return np.isnan(diff) | (diff <= window_hours * 3600.0)
+
+
+def count_structural_pairs(poly_t: list[dict], kalshi_t: list[dict],
+                           window_hours: float = 48) -> int:
+    """Number of pairs surviving the structural filter, without materializing them."""
+    by_cat_k: dict[str, list[dict]] = {}
     for m in kalshi_t:
-        by_cat.setdefault(m["canonical_category"], []).append(m)
-
-    window = timedelta(hours=window_hours)
-    pairs = []
-    for pm in poly_t:
-        for km in by_cat.get(pm["canonical_category"], []):
-            # Only apply the time window when both sides have a close_time.
-            if pm["close_time"] and km["close_time"]:
-                if abs(pm["close_time"] - km["close_time"]) > window:
-                    continue
-            pairs.append((pm, km))
-    return pairs
+        by_cat_k.setdefault(m["canonical_category"], []).append(m)
+    by_cat_p: dict[str, list[dict]] = {}
+    for m in poly_t:
+        by_cat_p.setdefault(m["canonical_category"], []).append(m)
+    total = 0
+    for cat, ps in by_cat_p.items():
+        ks = by_cat_k.get(cat)
+        if ks:
+            ck = close_seconds(ks)
+            cp = close_seconds(ps)
+            for start in range(0, len(ps), 512):
+                total += int(window_mask(cp[start:start + 512], ck, window_hours).sum())
+    return total
 
 
 if __name__ == "__main__":
@@ -53,8 +71,9 @@ if __name__ == "__main__":
     kalshi = load_latest_markets(con, "kalshi")
     con.close()
 
-    pairs = structural_pairs(poly, kalshi)
+    cmap = load_category_map()
+    n = count_structural_pairs(tag_categories(poly, cmap), tag_categories(kalshi, cmap))
     full_cross = len(poly) * len(kalshi)
     print(f"poly={len(poly)} kalshi={len(kalshi)} full cross product={full_cross:,}")
-    print(f"survived structural filter: {len(pairs):,} pairs "
-          f"({100*len(pairs)/full_cross:.4f}% of cross product)")
+    print(f"survived structural filter: {n:,} pairs "
+          f"({100 * n / max(full_cross, 1):.4f}% of cross product)")

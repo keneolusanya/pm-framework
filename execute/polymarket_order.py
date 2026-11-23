@@ -1,10 +1,15 @@
-"""Day 5 Block 3: Polymarket order placement via py-clob-client.
+"""Polymarket order placement via py-clob-client.
 
 Order placement goes through py-clob-client, never raw HTTP (the client handles
 EIP-712 order signing). There is no Polymarket sandbox, so the first live order
-must be trivially small. The Polygon wallet key is handed to the client's config
-(read from POLYMARKET_PRIVATE_KEY), never hardcoded and never written to .env in
-plaintext beyond what py-clob-client needs.
+must be trivially small. The Polygon wallet key comes from POLYMARKET_PRIVATE_KEY,
+never hardcoded.
+
+Orders are placed per outcome *token* (clobTokenIds from ingestion), not per
+market conditionId. If your funds sit in a Polymarket.com account (a proxy
+wallet), also set POLYMARKET_FUNDER to that account's address and
+POLYMARKET_SIGNATURE_TYPE (1 = email/Magic login, 2 = browser wallet);
+a bare EOA wallet needs neither.
 """
 import os
 
@@ -18,7 +23,11 @@ def _client():
     key = os.environ.get("POLYMARKET_PRIVATE_KEY")
     if not key:
         raise RuntimeError("POLYMARKET_PRIVATE_KEY not configured")
-    client = ClobClient(CLOB_HOST, key=key, chain_id=POLYGON_CHAIN_ID)
+    funder = os.environ.get("POLYMARKET_FUNDER") or None
+    sig_type = os.environ.get("POLYMARKET_SIGNATURE_TYPE")
+    client = ClobClient(CLOB_HOST, key=key, chain_id=POLYGON_CHAIN_ID,
+                        signature_type=int(sig_type) if sig_type else None,
+                        funder=funder)
     # API credentials are derived from the wallet key on first use.
     client.set_api_creds(client.create_or_derive_api_creds())
     return client

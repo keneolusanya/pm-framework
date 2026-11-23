@@ -1,4 +1,4 @@
-"""Day 3: LLM verification of candidate pairs with Claude (Sonnet 5).
+"""Stage 3 — LLM verification of candidate pairs with Claude (Sonnet 5).
 
 This is the trust-critical stage — deciding whether two markets resolve on the
 same real-world event, on the same criteria, source, and deadline. We use
@@ -51,7 +51,7 @@ def get_client() -> Anthropic:
 
 
 def rules_hash(text: str) -> str:
-    """Stable hash of resolution text, for Day 4's staleness check."""
+    """Stable hash of resolution text, for the scanner's staleness check."""
     return hashlib.sha256((text or "").strip().encode()).hexdigest()
 
 

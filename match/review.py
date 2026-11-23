@@ -1,4 +1,4 @@
-"""Day 3 Block 3: manual review queue for needs_review pairs.
+"""Manual review queue for needs_review pairs.
 
     python match/review.py
 
@@ -9,7 +9,8 @@ uncertainty and the two live prices, and takes y/n/s:
     s -> skip for now (stays needs_review)
 
 This is the highest-leverage step: it's what makes verified_pairs trustworthy.
-Decisions are persisted immediately, so you can stop and resume anytime.
+Decisions are persisted immediately, so you can stop and resume anytime. The
+database is opened only to save each answer, never while waiting on you.
 """
 import sys
 from pathlib import Path
@@ -22,8 +23,17 @@ def _index(markets):
     return {m["market_id"]: m for m in markets}
 
 
-def main():
+def _set_status(aid, bid, status):
     con = connect()
+    try:
+        con.execute("UPDATE verified_pairs SET status = ? WHERE market_a = ? AND market_b = ?",
+                    [status, aid, bid])
+    finally:
+        con.close()
+
+
+def main():
+    con = connect(read_only=True)
     poly = _index(load_latest_markets(con, "polymarket"))
     kalshi = _index(load_latest_markets(con, "kalshi"))
 
@@ -34,10 +44,10 @@ def main():
         ORDER BY confidence DESC
         """
     ).fetchall()
+    con.close()
 
     if not queue:
         print("Nothing in the review queue. 🎉")
-        con.close()
         return
 
     print(f"{len(queue)} pairs to review.  "
@@ -69,9 +79,7 @@ def main():
                 continue
             j, paid, pbid, changed = history.pop()
             if changed:
-                con.execute(
-                    "UPDATE verified_pairs SET status='needs_review' "
-                    "WHERE market_a=? AND market_b=?", [paid, pbid])
+                _set_status(paid, pbid, "needs_review")
                 print(f"  <- undid pair {j+1}, back to needs_review")
             i = j  # re-present that pair
             continue
@@ -86,14 +94,11 @@ def main():
         else:
             continue  # invalid input — re-prompt the same pair
 
-        con.execute(
-            "UPDATE verified_pairs SET status = ? WHERE market_a = ? AND market_b = ?",
-            [new, aid, bid])
+        _set_status(aid, bid, new)
         print(f"  -> {new}")
         history.append((i, aid, bid, True))
         i += 1
 
-    con.close()
     print("\nReview session saved.")
 
 

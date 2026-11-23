@@ -1,4 +1,4 @@
-# Top-level dependencies, hand-maintained (append as plan.md introduces new ones).
+# Top-level dependencies, hand-maintained.
 # All pinned to the versions installed in .venv. Transitive deps are left to
 # pip to resolve — don't list them here.
 
@@ -11,7 +11,7 @@ sentence-transformers==5.6.0   # embedding similarity for candidate pairs
 anthropic==0.117.0         # Claude (Sonnet 5) structured-output verification
 
 # scan/ + dashboard/ — analysis and UI
-pandas==3.0.3              # dataframes for the scanner / dashboard
+pandas==3.0.3              # bulk ingest writes + dashboard dataframes
 streamlit==1.59.2          # dashboard app
 duckdb==1.5.4              # local database (db/markets.duckdb)
 
@@ -19,7 +19,7 @@ duckdb==1.5.4              # local database (db/markets.duckdb)
 py-clob-client==0.34.6     # Polymarket order placement (not raw HTTP)
 
 # execute/ — SMS-confirm webhook (order placement uses py-clob-client, above)
-fastapi==0.139.2           # SMS-confirm webhook (Day 5)
+fastapi==0.139.2           # SMS-confirm webhook
 uvicorn==0.51.0            # ASGI server for the webhook
 
 # alerts/ — SMS + notifications
@@ -27,3 +27,6 @@ twilio==9.10.9             # Twilio SMS alerts and reply webhook
 
 # config
 python-dotenv==1.2.2       # load .env into os.environ
+
+# tests
+pytest==9.1.1

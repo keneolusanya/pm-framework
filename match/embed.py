@@ -1,17 +1,21 @@
-"""Embedding similarity within category buckets.
+"""Stage 2 — embedding similarity within category buckets.
 
-We embed each market's text once (question + rules) with a small sentence
-transformer, then within each canonical category take the cosine-similarity
-matrix and keep, per Polymarket market, its top-k Kalshi matches above a
-threshold. Bucketing by category keeps each matrix small and avoids embedding
-the full 84M-pair cross product.
+Each market's text (question + rules) is embedded once with a small sentence
+transformer (all-MiniLM-L6-v2). Within each canonical category we take the
+cosine-similarity matrix, blank out pairs the structural filter rejects (close
+times too far apart), and keep, per Polymarket market, its top-k Kalshi matches
+above a threshold. Work is chunked by rows so memory stays bounded even for
+large categories.
 """
 from collections import defaultdict
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from filters import close_seconds, window_mask
+
 _model = None
+ROW_CHUNK = 512
 
 
 def get_model() -> SentenceTransformer:
@@ -25,11 +29,12 @@ def _text(m: dict) -> str:
     return f"{m['question']} {m['rules_text']}".strip()
 
 
-def top_k_candidates(poly: list[dict], kalshi: list[dict],
-                     k: int = 3, min_sim: float = 0.55) -> list[tuple]:
+def top_k_candidates(poly: list[dict], kalshi: list[dict], k: int = 1,
+                     min_sim: float = 0.80, window_hours: float = 48) -> list[tuple]:
     """poly/kalshi must already carry `canonical_category`.
 
-    Returns (poly_id, kalshi_id, category, similarity) tuples.
+    Returns (poly_id, kalshi_id, category, similarity) tuples, at most k per
+    Polymarket market, each passing the structural filter and >= min_sim.
     """
     model = get_model()
 
@@ -49,10 +54,15 @@ def top_k_candidates(poly: list[dict], kalshi: list[dict],
                              batch_size=64, show_progress_bar=False)
         k_emb = model.encode([_text(m) for m in ks], normalize_embeddings=True,
                              batch_size=64, show_progress_bar=False)
-        sims = p_emb @ k_emb.T
-        for i, row in enumerate(sims):
-            for j in np.argsort(row)[::-1][:k]:
-                if row[j] >= min_sim:
-                    out.append((ps[i]["market_id"], ks[j]["market_id"],
-                                cat, float(row[j])))
+        cp, ck = close_seconds(ps), close_seconds(ks)
+        kk = min(k, len(ks))
+        for start in range(0, len(ps), ROW_CHUNK):
+            sims = p_emb[start:start + ROW_CHUNK] @ k_emb.T
+            sims[~window_mask(cp[start:start + ROW_CHUNK], ck, window_hours)] = -np.inf
+            top = np.argpartition(-sims, kk - 1, axis=1)[:, :kk]
+            for r, cols in enumerate(top):
+                for j in cols[np.argsort(-sims[r, cols])]:
+                    if sims[r, j] >= min_sim:
+                        out.append((ps[start + r]["market_id"], ks[j]["market_id"],
+                                    cat, float(sims[r, j])))
     return out

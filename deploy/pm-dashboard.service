@@ -1,0 +1,16 @@
+[Unit]
+Description=pm-framework Streamlit dashboard (127.0.0.1:8501, behind Caddy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pm
+Group=pm
+WorkingDirectory=/opt/pm-framework
+EnvironmentFile=/opt/pm-framework/.env
+ExecStart=/opt/pm-framework/.venv/bin/streamlit run dashboard/app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
